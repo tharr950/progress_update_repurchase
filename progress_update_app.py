@@ -192,6 +192,114 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([df.reset_index(drop=True), feat_df], axis=1)
 
 
+# ── Tone definitions ─────────────────────────────────────────────────────────
+TONES = {
+    "🎯 Goal-oriented": {
+        "desc": "Focused on reaching a specific target score, grade, or outcome",
+        "pattern": r"\b(goal|target|aim|objective|reach|achieve|get to|score of|need to|want to|by the|before the|in order to|so that|milestone)\b",
+    },
+    "⚠️ Urgency / Hours pitch": {
+        "desc": "Emphasizes running low on hours or need to add more",
+        "pattern": r"\b(running (low|out)|only \d+ hours?|few hours?|hours? (left|remaining)|add (more )?hours?|additional hours?|need more|recommend adding|purchase|limited hours?)\b",
+    },
+    "🌟 Celebration / Praise": {
+        "desc": "Heavy on wins, pride, and positive framing of student progress",
+        "pattern": r"\b(proud|incredible|amazing|fantastic|wonderful|excelled|outstanding|great job|great work|excellent|so happy|love working|love having|pleasure|doing wonderfully|shining|nailed|knocked it|great progress|huge improvement)\b",
+    },
+    "📋 Clinical / Report-style": {
+        "desc": "Structured summary of what was covered and what comes next",
+        "pattern": r"\b(summary|covered|reviewed|went over|topics|concepts|strategies|areas|section|module|unit|the following|as follows|in session|this week we|we have been|we worked)\b",
+    },
+    "🤝 Relationship / Warmth": {
+        "desc": "Personal connection, warmth, expressing care for the student",
+        "pattern": r"\b(pleasure (to work|working)|enjoy working|love (working|having|tutoring)|great (kid|student|young|person)|such a (great|wonderful|joy|pleasure)|genuinely|care about|rooting for|means a lot|really do|honor to)\b",
+    },
+    "🔧 Problem / Gap focused": {
+        "desc": "Highlights what is not working, areas of concern, gaps to address",
+        "pattern": r"\b(struggling|concern|concerned|challenge|challenging|difficult|difficulty|gap|gaps|weak|weakness|area(s)? (to|of) (improve|work|focus|address)|not yet|needs? (work|improvement|attention)|behind|falling behind|careless errors?|mistakes?)\b",
+    },
+    "📅 Planning / Logistics": {
+        "desc": "Focused on scheduling, next session, calendar, logistics",
+        "pattern": r"\b(schedule|scheduled|scheduling|calendly|calendar|availability|next (session|week|meeting|time)|upcoming|slot|book|rescheduled|time that works|reach out to schedule|set up|coordinate)\b",
+    },
+}
+
+def score_tones(text: str) -> dict:
+    """Return a 0/1 score per tone for a message."""
+    if not text or not str(text).strip():
+        return {t: 0 for t in TONES}
+    text = str(text)
+    return {
+        tone: int(bool(re.search(info["pattern"], text, re.I)))
+        for tone, info in TONES.items()
+    }
+
+
+def tone_repurchase_table(df):
+    """For each tone, compute repurchase rate when present vs absent."""
+    rows = []
+    for tone in TONES:
+        if tone not in df.columns:
+            continue
+        present = df[df[tone] == 1]
+        absent  = df[df[tone] == 0]
+        if len(present) < 5:
+            continue
+        rate_present = present["repurchased"].mean() * 100
+        rate_absent  = absent["repurchased"].mean()  * 100
+        diff = rate_present - rate_absent
+        rows.append({
+            "Tone": tone,
+            "Description": TONES[tone]["desc"],
+            "Messages with tone": len(present),
+            "Repurchase rate (present)": f"{rate_present:.1f}%",
+            "Repurchase rate (absent)":  f"{rate_absent:.1f}%",
+            "Δ": round(diff, 1),
+            "_sort": diff,
+        })
+    df_out = pd.DataFrame(rows).sort_values("_sort", ascending=False).drop(columns="_sort")
+    return df_out
+
+
+def style_tone_delta(val):
+    try:
+        v = float(val)
+        if v >= 10:   return "color: #27ae60; font-weight: 800"
+        elif v >= 4:  return "color: #2ecc71; font-weight: 600"
+        elif v >= 0:  return "color: #58d68d"
+        elif v >= -4: return "color: #f1948a"
+        elif v >= -10: return "color: #e67e73; font-weight: 600"
+        else:          return "color: #e74c3c; font-weight: 800"
+    except:
+        return ""
+
+
+def top_tone_combos(df, top_n=8):
+    """Find the most common tone combinations and their repurchase rates."""
+    tone_cols = [t for t in TONES if t in df.columns]
+    df2 = df.copy()
+    df2["tone_combo"] = df2[tone_cols].apply(
+        lambda row: " + ".join([t for t in tone_cols if row[t] == 1]) or "No tones detected",
+        axis=1
+    )
+    combos = (
+        df2.groupby("tone_combo")
+        .agg(Count=("repurchased","count"), Repurchases=("repurchased","sum"))
+        .assign(**{"Repurchase Rate": lambda x: (x["Repurchases"]/x["Count"]*100).round(1)})
+        .reset_index()
+        .sort_values("Count", ascending=False)
+        .head(top_n)
+        .rename(columns={"tone_combo": "Tone Combination"})
+    )
+    return combos
+
+
+def enrich_tones(df: pd.DataFrame) -> pd.DataFrame:
+    """Add tone columns to the dataframe."""
+    tone_df = df["progress_update_clean"].apply(score_tones).apply(pd.Series)
+    return pd.concat([df, tone_df], axis=1)
+
+
 def top_keywords(text_series, n=25):
     words = []
     for t in text_series.dropna():
@@ -487,6 +595,13 @@ def render_analysis(df, label):
 
     # ── Message quality ────────────────────────────────────────────────────────
     st.markdown(f'<div class="section-header">Message Quality: Repurchased vs Not</div>', unsafe_allow_html=True)
+    st.info(
+        "💡 **These comparisons are unadjusted** — each feature is compared in isolation. "
+        "A feature may look predictive here simply because it correlates with something else "
+        "(e.g. longer messages naturally contain more of everything). "
+        "See the **Logistic Regression** section below for which factors independently predict "
+        "repurchase when controlling for all others."
+    )
 
     rows_df = []
     for feat, lbl in FEATURE_LABELS.items():
@@ -511,6 +626,48 @@ def render_analysis(df, label):
         use_container_width=True, hide_index=True,
     )
     st.caption("Sorted by magnitude. ▲▲▲/▼▼▼ = dramatic; ▲▲/▼▼ = notable; ▲/▼ = moderate.")
+
+    # ── Message length sweet spot ──────────────────────────────────────────────
+    st.markdown('<div class="section-header">Message Length Sweet Spot</div>', unsafe_allow_html=True)
+    st.caption(
+        "Does longer always = better? This shows repurchase rate at each word-count bucket "
+        "to reveal whether very long messages start to hurt."
+    )
+    df_len = df.copy()
+    max_words = int(df_len["word_count"].quantile(0.97))  # cap outliers
+    bin_edges = list(range(0, max_words + 50, 50))
+    bin_labels = [f"{b}–{b+49}" for b in bin_edges[:-1]]
+    df_len["word_bucket"] = pd.cut(
+        df_len["word_count"].clip(upper=max_words),
+        bins=bin_edges, labels=bin_labels, right=False
+    )
+    bucket_tbl = (
+        df_len.groupby("word_bucket", observed=True)
+        .agg(Messages=("repurchased","count"), Repurchases=("repurchased","sum"))
+        .assign(**{"Repurchase Rate %": lambda x: (x["Repurchases"]/x["Messages"]*100).round(1)})
+        .reset_index()
+        .rename(columns={"word_bucket": "Word Count Range"})
+    )
+    # Only show buckets with at least 5 messages
+    bucket_tbl = bucket_tbl[bucket_tbl["Messages"] >= 5]
+
+    def style_rate(val):
+        try:
+            v = float(val)
+            overall = df["repurchased"].mean() * 100
+            if v >= overall + 10: return "color: #27ae60; font-weight: 800"
+            elif v >= overall + 4: return "color: #2ecc71; font-weight: 600"
+            elif v <= overall - 10: return "color: #e74c3c; font-weight: 800"
+            elif v <= overall - 4: return "color: #e67e73; font-weight: 600"
+            return ""
+        except: return ""
+
+    st.dataframe(
+        bucket_tbl.style.map(style_rate, subset=["Repurchase Rate %"]),
+        use_container_width=True, hide_index=True,
+    )
+    overall_rate = df["repurchased"].mean() * 100
+    st.caption(f"Overall repurchase rate for this dataset: {overall_rate:.1f}%. Green = above average, red = below average.")
 
     # ── Distinctive Language ──────────────────────────────────────────────────
     st.markdown('<div class="section-header">Distinctive Language Analysis</div>', unsafe_allow_html=True)
@@ -563,6 +720,42 @@ def render_analysis(df, label):
                      use_container_width=True, hide_index=True)
     else:
         st.info("Not enough data to fit model.")
+
+    # ── Tone analysis ─────────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Message Tone Analysis</div>', unsafe_allow_html=True)
+    st.caption(
+        "Each message is scored on 7 tone dimensions. "
+        "Tones are not mutually exclusive — a message can be both Celebratory and Goal-oriented. "
+        "Δ = difference in repurchase rate when this tone is present vs absent."
+    )
+
+    tone_tbl = tone_repurchase_table(df)
+    if not tone_tbl.empty:
+        st.dataframe(
+            tone_tbl.style.map(style_tone_delta, subset=["Δ"]),
+            use_container_width=True, hide_index=True,
+        )
+    else:
+        st.info("Not enough data for tone analysis.")
+
+    st.markdown("**Most common tone combinations and their repurchase rates**")
+    st.caption("What mix of tones do tutors actually use, and which combinations work best?")
+    combo_tbl = top_tone_combos(df)
+    if not combo_tbl.empty:
+        def style_combo_rate(val):
+            try:
+                v = float(val)
+                overall = df["repurchased"].mean() * 100
+                if v >= overall + 10: return "color: #27ae60; font-weight: 800"
+                elif v >= overall + 4: return "color: #2ecc71; font-weight: 600"
+                elif v <= overall - 10: return "color: #e74c3c; font-weight: 800"
+                elif v <= overall - 4: return "color: #e67e73; font-weight: 600"
+                return ""
+            except: return ""
+        st.dataframe(
+            combo_tbl.style.map(style_combo_rate, subset=["Repurchase Rate"]),
+            use_container_width=True, hide_index=True,
+        )
 
     # ── Tutor analysis ────────────────────────────────────────────────────────
     st.markdown(f'<div class="section-header">Tutor-Level Analysis</div>', unsafe_allow_html=True)
@@ -639,8 +832,8 @@ except FileNotFoundError:
     st.error("❌ Could not find `ProgressUpdates_Repurchase.xlsx`. Place it in the same folder as this script.")
     st.stop()
 
-df6  = enrich(raw6)
-df10 = enrich(raw10)
+df6  = enrich_tones(enrich(raw6))
+df10 = enrich_tones(enrich(raw10))
 
 # ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
