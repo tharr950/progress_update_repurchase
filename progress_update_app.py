@@ -408,7 +408,7 @@ def render_analysis(df, label):
                   .sort_values("_sort", ascending=False)
                   .drop(columns="_sort").reset_index(drop=True))
     st.dataframe(
-        quality_df.style.applymap(style_difference, subset=["Difference"]),
+        quality_df.style.map(style_difference, subset=["Difference"]),
         use_container_width=True, hide_index=True,
     )
     st.caption("Sorted by magnitude. ▲▲▲/▼▼▼ = dramatic; ▲▲/▼▼ = notable; ▲/▼ = moderate.")
@@ -452,7 +452,7 @@ def render_analysis(df, label):
             if "✅" in str(val): return "color: #2d8a4e; font-weight: 600"
             elif "❌" in str(val): return "color: #c0392b; font-weight: 600"
             return ""
-        st.dataframe(coef_df.style.applymap(hl, subset=["What this means"]),
+        st.dataframe(coef_df.style.map(hl, subset=["What this means"]),
                      use_container_width=True, hide_index=True)
     else:
         st.info("Not enough data to fit model.")
@@ -476,7 +476,7 @@ def render_analysis(df, label):
                 else: return "color: #e74c3c"
             except: return ""
         st.dataframe(
-            tdf.style.applymap(hl_rate, subset=["Repurchase Rate"]),
+            tdf.style.map(hl_rate, subset=["Repurchase Rate"]),
             use_container_width=True, hide_index=True,
         )
 
