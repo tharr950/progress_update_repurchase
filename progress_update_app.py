@@ -276,30 +276,48 @@ def style_tone_delta(val):
 
 def tone_combo_table(df, min_count=5):
     """
-    Build a tone combination table sorted by repurchase rate (not frequency).
-    Only include combos with at least min_count messages so flukes don't dominate.
-    Always includes all combos containing Urgency so it's never buried.
+    Simplify each message to at most 2 dominant tones:
+      - If 0 tones: 'No tones detected'
+      - If 1 tone:  show that tone alone
+      - If 2+ tones: show only the top 2 by a fixed priority order
+    Then group and sort by repurchase rate.
     """
     tone_cols = [t for t in TONES if t in df.columns]
+
+    # Priority order — determines which 2 tones we keep when a message has many
+    TONE_PRIORITY = [
+        "⚠️ Urgency / Hours pitch",
+        "🎯 Goal-oriented",
+        "🌟 Celebration / Praise",
+        "🔧 Problem / Gap focused",
+        "📋 Clinical / Report-style",
+        "🤝 Relationship / Warmth",
+        "📅 Planning / Logistics",
+    ]
+
+    def dominant_label(row):
+        present = [t for t in TONE_PRIORITY if t in tone_cols and row.get(t, 0) == 1]
+        if not present:
+            return "No tones detected"
+        if len(present) == 1:
+            return present[0]
+        return present[0] + " + " + present[1]
+
     df2 = df.copy()
-    df2["tone_combo"] = df2[tone_cols].apply(
-        lambda row: " + ".join([t for t in tone_cols if row[t] == 1]) or "No tones detected",
-        axis=1
-    )
+    df2["tone_label"] = df2.apply(dominant_label, axis=1)
+
     all_combos = (
-        df2.groupby("tone_combo")
+        df2.groupby("tone_label")
         .agg(Count=("repurchased","count"), Repurchases=("repurchased","sum"))
         .assign(**{"Repurchase Rate %": lambda x: (x["Repurchases"]/x["Count"]*100).round(1)})
         .reset_index()
-        .rename(columns={"tone_combo": "Tone Combination"})
+        .rename(columns={"tone_label": "Dominant Tone(s)"})
     )
-    # Always show urgency combos even if below threshold
-    urgency_mask = all_combos["Tone Combination"].str.contains("Urgency", na=False)
-    meets_threshold = all_combos["Count"] >= min_count
 
-    included = all_combos[meets_threshold | urgency_mask].copy()
-    included = included.sort_values("Repurchase Rate %", ascending=False)
-    return included
+    # Urgency rows always shown; others need min_count
+    urgency_mask = all_combos["Dominant Tone(s)"].str.contains("Urgency", na=False)
+    included = all_combos[(all_combos["Count"] >= min_count) | urgency_mask]
+    return included.sort_values("Repurchase Rate %", ascending=False)
 
 
 def enrich_tones(df: pd.DataFrame) -> pd.DataFrame:
