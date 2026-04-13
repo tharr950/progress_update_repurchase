@@ -98,7 +98,7 @@ h1, h2, h3 { font-family: 'Playfair Display', serif; }
 """, unsafe_allow_html=True)
 
 # ── Data loading ──────────────────────────────────────────────────────────────
-EXCEL_PATH = "ProgressUpdates_Repurchase.xlsx"
+EXCEL_PATH = "ProgressUpdates&Repurchase.xlsx"
 
 @st.cache_data(show_spinner="Loading data…")
 def load_data():
