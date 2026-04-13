@@ -190,31 +190,99 @@ def build_name_blocklist(df: pd.DataFrame) -> set:
     return names
 
 
-def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=15):
+# ── Operational boilerplate to suppress ──────────────────────────────────────
+CONTENT_STOPWORDS = {
+    "hours","hour","session","sessions","work","working","student","tutor",
+    "tutoring","please","know","let","time","week","weeks","month","months",
+    "update","progress","email","phone","call","contact","reach","touch",
+    "feel","free","questions","question","anything","everything","something",
+    "hello","hi","dear","hey","hope","doing","great","good","wonderful",
+    "thank","thanks","thank you","talking","spoke","speaking","chat","talked",
+    "wanted","want","just","like","really","very","also","well","make","sure",
+    "going","come","back","forward","look","looking","sincerely",
+    "best","regards","warmly","cheers","revolution","prep","revolutionprep",
+    "attached","summary","conversation","discussed","discuss","mention",
+    "provide","provided","below","above","following","regarding","concerning",
+    "com","www","http","https","gmail","yahoo","outlook",
+}
+
+THEMES = {
+    "📈 Score & Progress":      r"\b(score|point|points|percent|increase|improved|improvement|higher|lower|gained|gains|result|results|test|exam|sat|act|practice)\b",
+    "🗓 Planning & Next Steps":  r"\b(plan|next|upcoming|schedule|schedul|recommend|suggest|going forward|moving forward|continue|meet|meeting|calendly|calendar)\b",
+    "⚠️ Urgency & Hours":       r"\b(remaining|left|low|running|add|adding|additional|more hours|limited|soon|deadline|before|crunch|last)\b",
+    "💡 Skill & Subject":       r"\b(math|english|reading|writing|science|history|algebra|geometry|calculus|grammar|vocabulary|comprehension|essay|punctuation|trig|biology|chemistry|physics)\b",
+    "🤝 Relationship & Tone":   r"\b(love|proud|pleasure|enjoy|wonderful|amazing|fantastic|motivated|confident|engaged|hard work|dedicated|great student|pleasure working)\b",
+    "📋 Homework & Practice":   r"\b(homework|practice|assignment|review|worksheet|mock|full.length|problem|exercise|quiz|drill|complete|finish)\b",
+}
+
+def assign_theme(phrase):
+    for theme, pattern in THEMES.items():
+        if re.search(pattern, phrase, re.I):
+            return theme
+    return "🔍 Other"
+
+def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
     if not rep_texts or not norep_texts:
-        return [], []
-    labels = [1]*len(rep_texts) + [0]*len(norep_texts)
-    texts  = rep_texts + norep_texts
+        return {}, {}
+    labels_arr = np.array([1]*len(rep_texts) + [0]*len(norep_texts))
+    texts = rep_texts + norep_texts
     try:
-        vec = TfidfVectorizer(max_features=600, stop_words="english", ngram_range=(1,2), min_df=2)
+        vec = TfidfVectorizer(
+            stop_words="english",
+            ngram_range=(2, 3),
+            max_features=2000,
+            min_df=3,
+            max_df=0.85,
+            sublinear_tf=True,
+        )
         X = vec.fit_transform(texts).toarray()
         feat_names = vec.get_feature_names_out()
 
-        def has_name(phrase):
-            return any(tok in name_blocklist for tok in phrase.lower().split())
+        def is_noise(phrase):
+            tokens = phrase.lower().split()
+            if any(tok in name_blocklist for tok in tokens):
+                return True
+            if all(tok in CONTENT_STOPWORDS for tok in tokens):
+                return True
+            return False
 
-        valid = [i for i, f in enumerate(feat_names) if not has_name(f)]
-        X = X[:, valid]
-        feat_names = feat_names[valid]
+        valid_idx = [i for i, f in enumerate(feat_names) if not is_noise(f)]
+        X = X[:, valid_idx]
+        feat_names = feat_names[valid_idx]
 
-        rep_mean = X[np.array(labels)==1].mean(axis=0)
-        nor_mean = X[np.array(labels)==0].mean(axis=0)
-        diff = rep_mean - nor_mean
-        top_rep = [(feat_names[i], round(float( diff[i]),4)) for i in np.argsort(diff)[::-1][:n]]
-        top_nor = [(feat_names[i], round(float(-diff[i]),4)) for i in np.argsort(diff)[:n]]
-        return top_rep, top_nor
+        eps = 1e-9
+        rep_results, nor_results = [], []
+
+        for i, phrase in enumerate(feat_names):
+            col = X[:, i]
+            present = (col > 0).astype(float)
+            p_rep = present[labels_arr == 1].mean() + eps
+            p_nor = present[labels_arr == 0].mean() + eps
+            lr = np.log(p_rep / p_nor)
+
+            if lr > 0.3 and p_rep >= 0.05:
+                rep_results.append({"phrase": phrase, "lr": lr,
+                                    "p_rep": round(p_rep*100,1), "p_nor": round(p_nor*100,1),
+                                    "theme": assign_theme(phrase)})
+            elif lr < -0.3 and p_nor >= 0.05:
+                nor_results.append({"phrase": phrase, "lr": abs(lr),
+                                    "p_rep": round(p_rep*100,1), "p_nor": round(p_nor*100,1),
+                                    "theme": assign_theme(phrase)})
+
+        rep_results = sorted(rep_results, key=lambda x: x["lr"], reverse=True)[:n]
+        nor_results = sorted(nor_results, key=lambda x: x["lr"], reverse=True)[:n]
+
+        def group_by_theme(results):
+            grouped = {}
+            for r in results:
+                grouped.setdefault(r["theme"], []).append(r)
+            return dict(sorted(grouped.items(), key=lambda x: max(r["lr"] for r in x[1]), reverse=True))
+
+        return group_by_theme(rep_results), group_by_theme(nor_results)
+
     except Exception:
-        return [], []
+        return {}, {}
+
 
 
 FEATURE_LABELS = {
@@ -413,36 +481,44 @@ def render_analysis(df, label):
     )
     st.caption("Sorted by magnitude. ▲▲▲/▼▼▼ = dramatic; ▲▲/▼▼ = notable; ▲/▼ = moderate.")
 
-    # ── TF-IDF ────────────────────────────────────────────────────────────────
-    st.markdown(f'<div class="section-header">Distinctive Language: TF-IDF Analysis</div>', unsafe_allow_html=True)
-    st.caption("Phrases disproportionately associated with each outcome — not just frequent, but distinctive.")
+    # ── Distinctive Language ──────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Distinctive Language Analysis</div>', unsafe_allow_html=True)
+    st.caption(
+        "Phrases (2-3 words) statistically distinctive to each outcome, scored by likelihood ratio "
+        "and requiring at least 5% presence in the group. Grouped by theme. Generic single words filtered out."
+    )
 
     name_bl = build_name_blocklist(df)
     rep_texts   = rep["progress_update"].dropna().astype(str).tolist()
     norep_texts = norep["progress_update"].dropna().astype(str).tolist()
-    top_rep, top_nor = tfidf_distinctive(rep_texts, norep_texts, name_bl)
+    grouped_rep, grouped_nor = tfidf_distinctive(rep_texts, norep_texts, name_bl)
+
+    def render_grouped_language(grouped, tag_class, pct_col, other_col):
+        if not grouped:
+            st.info("Not enough distinctive phrases found.")
+            return
+        for theme, phrases in grouped.items():
+            st.markdown(f"**{theme}**")
+            tags_html = "".join(f'<span class="tag {tag_class}">{p["phrase"]}</span>' for p in phrases)
+            st.markdown(f'<div class="insight-box" style="margin-bottom:0.4rem">{tags_html}</div>',
+                        unsafe_allow_html=True)
+            rows = [{
+                "Phrase": p["phrase"],
+                "In this group": f"{p[pct_col]:.0f}%",
+                "In other group": f"{p[other_col]:.0f}%",
+                "Strength": round(p["lr"], 2),
+            } for p in phrases]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     tr, tnr = st.columns(2)
     with tr:
         st.markdown("**🟢 Language more common when families REPURCHASE**")
-        if top_rep:
-            tags = "".join(f'<span class="tag tag-green">{w}</span>' for w,_ in top_rep)
-            st.markdown(f'<div class="insight-box">{tags}</div>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(top_rep, columns=["Phrase","TF-IDF Score"]),
-                         use_container_width=True, hide_index=True)
-        else:
-            st.info("Not enough data.")
+        render_grouped_language(grouped_rep, "tag-green", "p_rep", "p_nor")
     with tnr:
         st.markdown("**🔴 Language more common when families do NOT repurchase**")
-        if top_nor:
-            tags = "".join(f'<span class="tag tag-red">{w}</span>' for w,_ in top_nor)
-            st.markdown(f'<div class="insight-box">{tags}</div>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(top_nor, columns=["Phrase","TF-IDF Score"]),
-                         use_container_width=True, hide_index=True)
-        else:
-            st.info("Not enough data.")
+        render_grouped_language(grouped_nor, "tag-red", "p_nor", "p_rep")
 
-    # ── Logistic regression ───────────────────────────────────────────────────
+    # ── Logistic regression───────────────────────
     st.markdown(f'<div class="section-header">What Predicts Repurchase? (Logistic Regression)</div>', unsafe_allow_html=True)
     st.caption("Ranked by strength. 'What this means' tells you the practical takeaway in plain English.")
 
