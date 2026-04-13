@@ -274,24 +274,32 @@ def style_tone_delta(val):
         return ""
 
 
-def top_tone_combos(df, top_n=8):
-    """Find the most common tone combinations and their repurchase rates."""
+def tone_combo_table(df, min_count=5):
+    """
+    Build a tone combination table sorted by repurchase rate (not frequency).
+    Only include combos with at least min_count messages so flukes don't dominate.
+    Always includes all combos containing Urgency so it's never buried.
+    """
     tone_cols = [t for t in TONES if t in df.columns]
     df2 = df.copy()
     df2["tone_combo"] = df2[tone_cols].apply(
         lambda row: " + ".join([t for t in tone_cols if row[t] == 1]) or "No tones detected",
         axis=1
     )
-    combos = (
+    all_combos = (
         df2.groupby("tone_combo")
         .agg(Count=("repurchased","count"), Repurchases=("repurchased","sum"))
-        .assign(**{"Repurchase Rate": lambda x: (x["Repurchases"]/x["Count"]*100).round(1)})
+        .assign(**{"Repurchase Rate %": lambda x: (x["Repurchases"]/x["Count"]*100).round(1)})
         .reset_index()
-        .sort_values("Count", ascending=False)
-        .head(top_n)
         .rename(columns={"tone_combo": "Tone Combination"})
     )
-    return combos
+    # Always show urgency combos even if below threshold
+    urgency_mask = all_combos["Tone Combination"].str.contains("Urgency", na=False)
+    meets_threshold = all_combos["Count"] >= min_count
+
+    included = all_combos[meets_threshold | urgency_mask].copy()
+    included = included.sort_values("Repurchase Rate %", ascending=False)
+    return included
 
 
 def enrich_tones(df: pd.DataFrame) -> pd.DataFrame:
@@ -738,9 +746,14 @@ def render_analysis(df, label):
     else:
         st.info("Not enough data for tone analysis.")
 
-    st.markdown("**Most common tone combinations and their repurchase rates**")
-    st.caption("What mix of tones do tutors actually use, and which combinations work best?")
-    combo_tbl = top_tone_combos(df)
+    st.markdown("**Tone combinations — sorted by repurchase rate**")
+    overall_pct = df["repurchased"].mean() * 100
+    st.caption(
+        f"Sorted by repurchase rate (high → low). Minimum 5 messages per combo to appear. "
+        f"Urgency combinations always shown regardless of frequency. "
+        f"Overall rate for this dataset: **{overall_pct:.1f}%**."
+    )
+    combo_tbl = tone_combo_table(df)
     if not combo_tbl.empty:
         def style_combo_rate(val):
             try:
@@ -753,7 +766,7 @@ def render_analysis(df, label):
                 return ""
             except: return ""
         st.dataframe(
-            combo_tbl.style.map(style_combo_rate, subset=["Repurchase Rate"]),
+            combo_tbl.style.map(style_combo_rate, subset=["Repurchase Rate %"]),
             use_container_width=True, hide_index=True,
         )
 
