@@ -321,8 +321,12 @@ def tone_combo_table(df, min_count=5):
 
 
 def enrich_tones(df: pd.DataFrame) -> pd.DataFrame:
-    """Add tone columns to the dataframe."""
-    tone_df = df["progress_update_clean"].apply(score_tones).apply(pd.Series)
+    """Add tone columns to the dataframe.
+    Score tones on raw text — the signature stripper is too aggressive and
+    cuts message bodies on phrases like 'Have a great day', losing tone signals.
+    TF-IDF distinctive language analysis still uses the clean version.
+    """
+    tone_df = df["progress_update"].astype(str).apply(score_tones).apply(pd.Series)
     return pd.concat([df, tone_df], axis=1)
 
 
