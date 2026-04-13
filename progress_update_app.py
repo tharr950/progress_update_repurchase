@@ -160,11 +160,35 @@ def extract_features(text: str) -> dict:
     }
 
 
+# Signature salutation keywords
+_SIG_SALUTATIONS = (
+    "best|regards|sincerely|warmly|cheers|thanks|thank you|many thanks|"
+    "kind regards|warm regards|all best|take care|talk soon|looking forward|"
+    "have a great|have a good|have a nice|have a wonderful"
+)
+_SIG_RE = re.compile(
+    r"(?:\n|^)(?:[-\u2014]{2,}|(?:" + _SIG_SALUTATIONS + r"))[\s\S]*$",
+    re.I | re.M
+)
+
+def strip_signature(text: str) -> str:
+    """Remove signature block, phone numbers, emails, and URLs from message body."""
+    if not text:
+        return text
+    text = re.sub(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", "", text)
+    text = re.sub(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "", text)
+    text = re.sub(r"https?://\S+|www\.\S+", "", text)
+    text = _SIG_RE.sub("", text)
+    return text.strip()
+
+
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["repurchased"] = df["booking_after_progress_update"].notna()
     df["hours_remaining"] = (df["purchased_hours"] - df["delivered_hours"]).clip(lower=0)
-    feat_df = df["progress_update"].apply(extract_features).apply(pd.Series)
+    # stripped version used for language analysis only
+    df["progress_update_clean"] = df["progress_update"].astype(str).apply(strip_signature)
+    feat_df = df["progress_update_clean"].apply(extract_features).apply(pd.Series)
     return pd.concat([df.reset_index(drop=True), feat_df], axis=1)
 
 
@@ -243,6 +267,13 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
             if any(tok in name_blocklist for tok in tokens):
                 return True
             if all(tok in CONTENT_STOPWORDS for tok in tokens):
+                return True
+            # block phone number fragments, domain suffixes, bare numbers
+            if any(re.fullmatch(r'[\d\s\+\-\(\)\.]{4,}', tok) for tok in tokens):
+                return True
+            if any(re.fullmatch(r'\d+', tok) for tok in tokens):
+                return True
+            if any(tok in {"com","org","net","edu","co","io","gov","www"} for tok in tokens):
                 return True
             return False
 
@@ -489,8 +520,8 @@ def render_analysis(df, label):
     )
 
     name_bl = build_name_blocklist(df)
-    rep_texts   = rep["progress_update"].dropna().astype(str).tolist()
-    norep_texts = norep["progress_update"].dropna().astype(str).tolist()
+    rep_texts   = rep["progress_update_clean"].dropna().astype(str).tolist()
+    norep_texts = norep["progress_update_clean"].dropna().astype(str).tolist()
     grouped_rep, grouped_nor = tfidf_distinctive(rep_texts, norep_texts, name_bl)
 
     def render_grouped_language(grouped, tag_class, pct_col, other_col):
@@ -576,11 +607,11 @@ def render_analysis(df, label):
         kc, knc = st.columns(2)
         with kc:
             st.markdown("**Repurchased**")
-            st.dataframe(pd.DataFrame(top_keywords(rep["progress_update"]), columns=["Word","Count"]),
+            st.dataframe(pd.DataFrame(top_keywords(rep["progress_update_clean"]), columns=["Word","Count"]),
                          use_container_width=True, hide_index=True)
         with knc:
             st.markdown("**No Repurchase**")
-            st.dataframe(pd.DataFrame(top_keywords(norep["progress_update"]), columns=["Word","Count"]),
+            st.dataframe(pd.DataFrame(top_keywords(norep["progress_update_clean"]), columns=["Word","Count"]),
                          use_container_width=True, hide_index=True)
 
     # ── Raw data ──────────────────────────────────────────────────────────────
