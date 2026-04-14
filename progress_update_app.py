@@ -513,18 +513,22 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
 
 # ── Actionable message signals ───────────────────────────────────────────────
 ACTIONABLE_SIGNALS = {
-    "mentions_specific_score":    (r"\b\d{3,4}\b",                                                                                           "Mentions a specific score (e.g. 1250, 28)"),
-    "mentions_score_gap":         (r"\b(from|went from|started at|increased from|up from|improved from)\b.{0,40}\b\d{3,4}\b",               "Mentions score improvement (from X to Y)"),
-    "mentions_test_date":         (r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b.{0,20}\b(sat|act|test|exam)\b", "Mentions a specific upcoming test date"),
-    "asks_to_add_hours":          (r"\b(add|adding|purchase|recommend adding|suggest adding)\b.{0,20}\bhours?\b",                            "Explicitly asks parent to add hours"),
-    "proposes_session_frequency": (r"\b(\d+\s*(times?|sessions?|hours?)\s*(per|a|each)\s*(week|month)|once a week|twice a week|weekly|biweekly)\b", "Proposes a specific session frequency"),
-    "requests_phone_call":        (r"\b(phone call|give me a call|schedule a call|hop on a call|quick call|talk on the phone)\b",            "Asks for a phone call with the parent"),
-    "mentions_student_by_name":   (r"\b[A-Z][a-z]{2,}\b.{0,100}\b(improved|struggled|worked|scored|showed|completed|finished|doing)\b",    "Refers to student by name in context"),
-    "gives_specific_homework":    (r"\b(assigned|assign|complete|finish|work on|practice)\b.{0,30}\b(problems?|questions?|sections?|pages?|tests?|sets?)\b", "Gives specific homework assignment"),
-    "mentions_college_deadline":  (r"\b(college|application|deadline|common app|early decision|early action|admission)\b",                   "Mentions college applications or deadlines"),
-    "mentions_specific_weakness": (r"\b(struggling|weak|weakness|needs work|area of improvement|working on|focus on)\b.{0,30}\b(math|reading|writing|science|english|grammar|punctuation|algebra|geometry|vocabulary)\b", "Identifies a specific subject weakness"),
-    "has_concrete_plan":          (r"\b(plan is|our plan|the plan|going to|we will|we are going to|next steps are|here is what)\b",          "States a concrete plan going forward"),
-    "mentions_practice_test":     (r"\b(practice test|mock test|full.?length|timed test|diagnostic|practice exam)\b",                        "Mentions a practice test"),
+    "mentions_specific_score":      (r"\b\d{3,4}\b",                                                                                                     "Mentions a specific score (e.g. 1250, 28)"),
+    "mentions_score_gap":           (r"\b(from|went from|started at|increased from|up from|improved from)\b.{0,40}\b\d{3,4}\b",                          "Mentions score improvement (from X to Y)"),
+    "mentions_points_improvement":  (r"\b(\d+\s*points?|increased.{0,20}points?|points?.{0,20}increase|improved.{0,20}points?)\b",                        "Mentions improvement in points (e.g. 90 points)"),
+    "mentions_test_date":           (r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b.{0,20}\b(sat|act|test|exam)\b", "Mentions a specific upcoming test date"),
+    "asks_to_add_hours":            (r"\b(add|adding|purchase|recommend adding|suggest adding)\b.{0,20}\bhours?\b",                                       "Explicitly asks parent to add hours"),
+    "proposes_session_frequency":   (r"\b(\d+\s*(times?|sessions?|hours?)\s*(per|a|each)\s*(week|month)|once a week|twice a week|weekly|biweekly|\d+.hour.session)\b", "Proposes a specific session frequency"),
+    "requests_phone_call":          (r"\b(phone call|give me a call|schedule a call|hop on a call|quick call|talk on the phone)\b",                       "Asks for a phone call with the parent"),
+    "references_advisor":           (r"\b(advisor|susan|advisor will|advisor can|reach out to|copied|cc.d|looping in|in the loop)\b",                     "References advisor to help with next steps"),
+    "mentions_student_by_name":     (r"\b[A-Z][a-z]{2,}\b.{0,100}\b(improved|struggled|worked|scored|showed|completed|finished|doing)\b",                "Refers to student by name in context"),
+    "gives_specific_homework":      (r"\b(assigned|assign|complete|finish|work on|practice)\b.{0,30}\b(problems?|questions?|sections?|pages?|tests?|sets?)\b", "Gives specific homework assignment"),
+    "mentions_college_deadline":    (r"\b(college|application|deadline|common app|early decision|early action|admission)\b",                              "Mentions college applications or deadlines"),
+    "mentions_specific_weakness":   (r"\b(struggling|weak|weakness|needs work|area of improvement|working on|focus on)\b.{0,30}\b(math|reading|writing|science|english|grammar|punctuation|algebra|geometry|vocabulary)\b", "Identifies a specific subject weakness"),
+    "has_concrete_plan":            (r"\b(plan is|our plan|the plan|going to|we will|we are going to|next steps are|here is what)\b",                     "States a concrete plan going forward"),
+    "mentions_practice_test":       (r"\b(practice test|mock test|full.?length|timed test|diagnostic|practice exam)\b",                                   "Mentions a practice test"),
+    "mentions_summer_continuation": (r"\b(summer|over the summer|summer sessions?|summer tutoring|summer schedule|summer plan)\b",                        "Mentions summer continuation"),
+    "uses_numbered_structure":      (r"\b(1\.|2\.|3\.|(1)|(2)|(3)|first,|second,|third,|where we are|where we started|where we.re going)\b",            "Uses structured/numbered format"),
 }
 
 def score_actionable(text: str) -> dict:
@@ -544,7 +548,35 @@ def load_data():
     return df6, df10
 
 
+def signal_combinations(df, min_count=8, top_n=15):
+    sig_cols = [c for c in ACTIONABLE_SIGNALS.keys() if c in df.columns]
+    rows = []
+    for i in range(len(sig_cols)):
+        for j in range(i+1, len(sig_cols)):
+            a, b = sig_cols[i], sig_cols[j]
+            both = df[(df[a]==1) & (df[b]==1)]
+            if len(both) < min_count: continue
+            rate = both["repurchased"].mean() * 100
+            baseline = df["repurchased"].mean() * 100
+            rows.append({"Signal A": ACTIONABLE_SIGNALS[a][1], "Signal B": ACTIONABLE_SIGNALS[b][1],
+                         "Messages with both": len(both), "Repurchase Rate %": round(rate,1),
+                         "vs Baseline": round(rate-baseline,1)})
+    if not rows: return pd.DataFrame()
+    return (pd.DataFrame(rows).sort_values("Repurchase Rate %", ascending=False).head(top_n).reset_index(drop=True))
+
+
+def get_sample_messages(df, signal_key, converted_only=True, n=3):
+    if signal_key not in df.columns: return []
+    subset = df[df[signal_key] == 1]
+    if converted_only:
+        sub2 = subset[subset["repurchased"]]
+        subset = sub2 if len(sub2) > 0 else subset
+    if len(subset) == 0: return []
+    return subset.sample(min(n, len(subset)), random_state=42)["progress_update"].astype(str).tolist()
+
+
 def actionable_table(rep, norep):
+
     rows = []
     for key, (_, label) in ACTIONABLE_SIGNALS.items():
         c_val  = rep[key].mean()   if key in rep.columns   else 0
@@ -870,6 +902,43 @@ def render_analysis(df, label):
         "Green = more common in repurchased families. Red = more common in non-repurchased. "
         "Note: these are unadjusted — see Logistic Regression for independent effects."
     )
+
+    # ── Sample messages ───────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Sample Messages by Signal</div>', unsafe_allow_html=True)
+    st.caption("See real example messages from repurchased families for each signal. Use as coaching examples for tutors.")
+    selected_sig = st.selectbox(
+        "Choose a signal to see examples",
+        options=list(ACTIONABLE_SIGNALS.keys()),
+        format_func=lambda k: ACTIONABLE_SIGNALS[k][1],
+        key=f"sig_select_{label}",
+    )
+    if selected_sig:
+        samples = get_sample_messages(df, selected_sig, converted_only=True, n=3)
+        if samples:
+            for i, msg in enumerate(samples, 1):
+                with st.expander(f"Example {i} — click to expand"):
+                    st.markdown(msg[:1000] + ("…" if len(msg) > 1000 else ""))
+        else:
+            st.info("No repurchased examples found for this signal.")
+
+    # ── Signal combinations ───────────────────────────────────────────────
+    st.markdown('<div class="section-header">Signal Combinations</div>', unsafe_allow_html=True)
+    st.caption("Which pairs of signals together produce the highest repurchase rate? Min 8 messages. Sorted by repurchase rate.")
+    combo_df = signal_combinations(df)
+    if not combo_df.empty:
+        def style_combo(val):
+            try:
+                v = float(val)
+                if v >= 15:   return "color: #27ae60; font-weight: 800"
+                elif v >= 8:  return "color: #2ecc71; font-weight: 600"
+                elif v >= 0:  return "color: #58d68d"
+                elif v >= -8: return "color: #f1948a"
+                else:         return "color: #e74c3c; font-weight: 800"
+            except: return ""
+        st.dataframe(combo_df.style.map(style_combo, subset=["vs Baseline"]),
+                     use_container_width=True, hide_index=True)
+    else:
+        st.info("Not enough data for combination analysis.")
 
     # ── Logistic regression───────────────────────
     st.markdown(f'<div class="section-header">What Predicts Repurchase? (Logistic Regression)</div>', unsafe_allow_html=True)
