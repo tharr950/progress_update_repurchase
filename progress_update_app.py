@@ -427,12 +427,16 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
         return {}, {}
     labels_arr = np.array([1]*len(rep_texts) + [0]*len(norep_texts))
     texts = rep_texts + norep_texts
+    n_rep = int((labels_arr == 1).sum())
+    n_nor = int((labels_arr == 0).sum())
+    min_rep_count = max(3, int(n_rep * 0.04))
+    min_nor_count = max(3, int(n_nor * 0.04))
     try:
         vec = TfidfVectorizer(
             stop_words="english",
             ngram_range=(2, 3),
-            max_features=2000,
-            min_df=3,
+            max_features=3000,
+            min_df=2,
             max_df=0.85,
             sublinear_tf=True,
         )
@@ -445,24 +449,21 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
                 return True
             if all(tok in CONTENT_STOPWORDS for tok in tokens):
                 return True
-            # block phone number fragments, domain suffixes, bare numbers
-            if any(re.fullmatch(r'[\d\s\+\-\(\)\.]{4,}', tok) for tok in tokens):
+            if any(re.fullmatch(r"[\d\s\+\-\(\)\.]{4,}", tok) for tok in tokens):
                 return True
-            if any(re.fullmatch(r'\d+', tok) for tok in tokens):
+            if any(re.fullmatch(r"\d+", tok) for tok in tokens):
                 return True
             if any(tok in {"com","org","net","edu","co","io","gov","www"} for tok in tokens):
                 return True
-            # block encoding artifacts (mojibake fragments like "iâ", "ve", "â")
-            if any(re.search(r'[â€™œ-]', tok) for tok in tokens):
+            if any(re.search(r"[\x80-\x9f\xe2\xc3]", tok) for tok in tokens):
                 return True
-            if any(tok in {"iâ","ve","â","ã","â€","don","it","ll","re","didn","isn","wasn","couldn","wouldn","haven"} for tok in tokens):
+            if any(tok in {"iâ","ve","â","ã","don","ll","re","didn","isn","wasn","couldn","wouldn","haven","hailey","caudill"} for tok in tokens):
                 return True
-            # block phrases that are just stopword-ish fragments
             if all(len(tok) <= 3 for tok in tokens):
                 return True
             return False
 
-        valid_idx = [i for i, f in enumerate(feat_names) if not is_noise(f)]
+        valid_idx = [i for i,f in enumerate(feat_names) if not is_noise(f)]
         X = X[:, valid_idx]
         feat_names = feat_names[valid_idx]
 
@@ -472,15 +473,19 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
         for i, phrase in enumerate(feat_names):
             col = X[:, i]
             present = (col > 0).astype(float)
-            p_rep = present[labels_arr == 1].mean() + eps
-            p_nor = present[labels_arr == 0].mean() + eps
+            rep_present = present[labels_arr == 1]
+            nor_present = present[labels_arr == 0]
+            p_rep = rep_present.mean() + eps
+            p_nor = nor_present.mean() + eps
             lr = np.log(p_rep / p_nor)
+            rep_count = rep_present.sum()
+            nor_count = nor_present.sum()
 
-            if lr > 0.3 and p_rep >= 0.05:
+            if lr > 0.35 and rep_count >= min_rep_count:
                 rep_results.append({"phrase": phrase, "lr": lr,
                                     "p_rep": round(p_rep*100,1), "p_nor": round(p_nor*100,1),
                                     "theme": assign_theme(phrase)})
-            elif lr < -0.3 and p_nor >= 0.05:
+            elif lr < -0.35 and nor_count >= min_nor_count:
                 nor_results.append({"phrase": phrase, "lr": abs(lr),
                                     "p_rep": round(p_rep*100,1), "p_nor": round(p_nor*100,1),
                                     "theme": assign_theme(phrase)})
