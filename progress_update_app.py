@@ -392,19 +392,29 @@ def build_name_blocklist(df: pd.DataFrame) -> set:
 
 
 # ── Operational boilerplate to suppress ──────────────────────────────────────
+# ANY phrase containing one of these tokens is dropped — not just phrases
+# made entirely of them. This kills boilerplate fragments like
+# "forward continuing support", "believe covers wanted", etc.
 CONTENT_STOPWORDS = {
+    # generic filler & sign-off words
+    "forward","continuing","continued","support","journey","regards","highlight",
+    "covers","concerns","believe","seen","improvements","current","short","term",
+    "overall","hope","having","remains","looking","ahead","wanted","comments",
+    "share","updates","academic","functioning","wishes","sincerely","warmly",
+    "cheers","hello","dear","hey","hope","wonderful","thank","thanks","please",
+    "know","let","also","very","well","make","sure","going","come","back","just",
+    "like","really","update","progress","call","contact","reach","touch","feel",
+    "free","question","anything","everything","something","spoke","speaking",
+    "chat","want","provide","provided","summary","conversation","discussed",
+    "discuss","mention","attached","below","above","following","regarding",
+    "concerning","revolution","prep","revolutionprep","com","www","http","https",
+    # tutoring ops boilerplate
     "hours","hour","session","sessions","work","working","student","tutor",
-    "tutoring","please","know","let","time","week","weeks","month","months",
-    "update","progress","email","phone","call","contact","reach","touch",
-    "feel","free","questions","question","anything","everything","something",
-    "hello","hi","dear","hey","hope","doing","great","good","wonderful",
-    "thank","thanks","thank you","talking","spoke","speaking","chat","talked",
-    "wanted","want","just","like","really","very","also","well","make","sure",
-    "going","come","back","forward","look","looking","sincerely",
-    "best","regards","warmly","cheers","revolution","prep","revolutionprep",
-    "attached","summary","conversation","discussed","discuss","mention",
-    "provide","provided","below","above","following","regarding","concerning",
-    "com","www","http","https","gmail","yahoo","outlook",
+    "tutoring","class","today","during","week","weeks","month","months","time",
+    # common tutor first names (scraped from data)
+    "hailey","david","susan","jessica","lisa","amy","diana","karen","nisan",
+    "vahagn","hannah","christina","shawn","sean","sydney","nandita","olivia",
+    "eddie","kate","camila","melanie","dina","sarah","emily","michael",
 }
 
 THEMES = {
@@ -445,9 +455,10 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
 
         def is_noise(phrase):
             tokens = phrase.lower().split()
-            if any(tok in name_blocklist for tok in tokens):
+            # Drop if ANY token is boilerplate — kills mixed fragments
+            if any(tok in CONTENT_STOPWORDS for tok in tokens):
                 return True
-            if all(tok in CONTENT_STOPWORDS for tok in tokens):
+            if any(tok in name_blocklist for tok in tokens):
                 return True
             if any(re.fullmatch(r"[\d\s\+\-\(\)\.]{4,}", tok) for tok in tokens):
                 return True
@@ -455,9 +466,9 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
                 return True
             if any(tok in {"com","org","net","edu","co","io","gov","www"} for tok in tokens):
                 return True
-            if any(re.search(r"[\x80-\x9f\xe2\xc3]", tok) for tok in tokens):
+            if any(re.search(r"[-âÃ]", tok) for tok in tokens):
                 return True
-            if any(tok in {"iâ","ve","â","ã","don","ll","re","didn","isn","wasn","couldn","wouldn","haven","hailey","caudill"} for tok in tokens):
+            if any(tok in {"iâ","ve","â","ã","don","ll","re","didn","isn","wasn","couldn","wouldn","haven"} for tok in tokens):
                 return True
             if all(len(tok) <= 3 for tok in tokens):
                 return True
@@ -504,6 +515,56 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
     except Exception:
         return {}, {}
 
+
+
+# ── Actionable message signals ───────────────────────────────────────────────
+ACTIONABLE_SIGNALS = {
+    "mentions_specific_score":      (r"\d{3,4}", "Mentions a specific score (e.g. 1250, 28)"),
+    "mentions_score_gap":           (r"(from|went from|was|started at|increased from|up from|down from|improved from).{0,30}\d{3,4}", "Mentions score improvement (from X to Y)"),
+    "mentions_test_date":           (r"(january|february|march|april|may|june|july|august|september|october|november|december).{0,20}(sat|act|test|exam)|(sat|act|test|exam).{0,20}(january|february|march|april|may|june|july|august|september|october|november|december)", "Mentions a specific upcoming test date"),
+    "asks_to_add_hours":            (r"(add|adding|purchase|purchasing|recommend adding|suggest adding).{0,20}(hours?|more time)", "Explicitly asks parent to add hours"),
+    "proposes_session_frequency":   (r"(\d+\s*(times?|sessions?|hours?)\s*(per|a|each)\s*(week|month)|once|twice|weekly|biweekly)", "Proposes a specific session frequency"),
+    "requests_phone_call":          (r"(phone call|give me a call|schedule a call|hop on a call|quick call|call me|call you|talk on the phone|speak by phone|phone chat)", "Asks for a phone call with the parent"),
+    "mentions_student_by_name":     (r"[A-Z][a-z]{2,}(?=.{0,200}(is|has|was|have|showed|demonstrated|improved|struggled|worked|completed|finished|scored))", "Refers to student by name in context"),
+    "gives_specific_homework":      (r"(assigned|assign|complete|finish|work on|practice).{0,30}(problems?|questions?|sections?|pages?|chapters?|passages?|tests?|sets?)", "Gives specific homework assignment"),
+    "mentions_college_deadline":    (r"(college|application|deadline|common app|early decision|early action|admission)", "Mentions college applications or deadlines"),
+    "mentions_specific_weakness":   (r"(struggle|struggling|weak|weakness|needs work|area of improvement|working on|focus on|target).{0,30}(math|reading|writing|science|english|grammar|punctuation|algebra|geometry|vocabulary|comprehension)", "Identifies a specific subject weakness"),
+    "has_concrete_plan":            (r"(plan is|our plan|the plan|here is what|going to|we will|we are going to|i will|schedule is|next steps are)", "States a concrete plan going forward"),
+    "mentions_practice_test":       (r"(practice test|mock test|full.?length|timed test|diagnostic|practice exam)", "Mentions a practice test"),
+}
+
+def score_actionable(text: str) -> dict:
+    text = str(text)
+    return {k: int(bool(re.search(pat, text, re.I))) for k, (pat, _) in ACTIONABLE_SIGNALS.items()}
+
+def enrich_actionable(df: pd.DataFrame) -> pd.DataFrame:
+    sig_df = df["progress_update"].astype(str).apply(score_actionable).apply(pd.Series)
+    return pd.concat([df, sig_df], axis=1)
+
+def actionable_table(rep, norep):
+    rows = []
+    for key, (_, label) in ACTIONABLE_SIGNALS.items():
+        c_val  = rep[key].mean()   if key in rep.columns   else 0
+        nc_val = norep[key].mean() if key in norep.columns else 0
+        diff   = (c_val - nc_val) * 100
+        rows.append({
+            "Signal": label,
+            "Repurchased": f"{c_val*100:.0f}%",
+            "Not Repurchased": f"{nc_val*100:.0f}%",
+            "Δ (pp)": round(diff, 1),
+        })
+    return pd.DataFrame(rows).sort_values("Δ (pp)", ascending=False)
+
+def style_actionable_delta(val):
+    try:
+        v = float(val)
+        if v >= 10:    return "color: #27ae60; font-weight: 800"
+        elif v >= 4:   return "color: #2ecc71; font-weight: 600"
+        elif v >= 0:   return "color: #58d68d"
+        elif v >= -4:  return "color: #f1948a"
+        elif v >= -10: return "color: #e67e73; font-weight: 600"
+        else:          return "color: #e74c3c; font-weight: 800"
+    except: return ""
 
 
 FEATURE_LABELS = {
@@ -789,6 +850,23 @@ def render_analysis(df, label):
         st.markdown("**🔴 Language more common when families do NOT repurchase**")
         render_grouped_language(grouped_nor, "tag-red", "p_nor", "p_rep")
 
+    # ── Actionable signals ───────────────────────────────────────────────────
+    st.markdown('<div class="section-header">Actionable Message Signals</div>', unsafe_allow_html=True)
+    st.caption(
+        "Each message is scored on 12 concrete, hand-crafted signals that represent "
+        "specific choices a tutor makes when writing. Sorted by Δ (percentage point difference "
+        "between repurchased and not). These are the most directly actionable findings."
+    )
+    act_tbl = actionable_table(rep, norep)
+    st.dataframe(
+        act_tbl.style.map(style_actionable_delta, subset=["Δ (pp)"]),
+        use_container_width=True, hide_index=True,
+    )
+    st.caption(
+        "Green = more common in repurchased families. Red = more common in non-repurchased. "
+        "Note: these are unadjusted — see Logistic Regression for independent effects."
+    )
+
     # ── Logistic regression───────────────────────
     st.markdown(f'<div class="section-header">What Predicts Repurchase? (Logistic Regression)</div>', unsafe_allow_html=True)
     st.caption("Ranked by strength. 'What this means' tells you the practical takeaway in plain English.")
@@ -920,8 +998,8 @@ except FileNotFoundError:
     st.error("❌ Could not find `ProgressUpdates_Repurchase.xlsx`. Place it in the same folder as this script.")
     st.stop()
 
-df6  = enrich_tones(enrich(raw6))
-df10 = enrich_tones(enrich(raw10))
+df6  = enrich_actionable(enrich_tones(enrich(raw6)))
+df10 = enrich_actionable(enrich_tones(enrich(raw10)))
 
 # ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
