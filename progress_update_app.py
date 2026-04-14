@@ -863,6 +863,15 @@ def render_analysis(df, label):
         "specific choices a tutor makes when writing. Sorted by Δ (percentage point difference "
         "between repurchased and not). These are the most directly actionable findings."
     )
+
+    # DEBUG — remove once working
+    act_cols = [c for c in rep.columns if c in ACTIONABLE_SIGNALS]
+    st.write(f"DEBUG: actionable cols found on rep: {act_cols}")
+    if act_cols:
+        st.write(f"DEBUG: mentions_specific_score mean (rep): {rep['mentions_specific_score'].mean():.3f}")
+    else:
+        st.write(f"DEBUG: ALL rep columns: {list(rep.columns)}")
+
     act_tbl = actionable_table(rep, norep)
     st.dataframe(
         act_tbl.style.map(style_actionable_delta, subset=["Δ (pp)"]),
