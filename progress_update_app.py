@@ -160,26 +160,63 @@ def extract_features(text: str) -> dict:
     }
 
 
-# Signature salutation keywords
-_SIG_SALUTATIONS = (
-    "best|regards|sincerely|warmly|cheers|thanks|thank you|many thanks|"
-    "kind regards|warm regards|all best|take care|talk soon|looking forward|"
-    "have a great|have a good|have a nice|have a wonderful"
-)
-_SIG_RE = re.compile(
-    r"(?:\n|^)(?:[-\u2014]{2,}|(?:" + _SIG_SALUTATIONS + r"))[\s\S]*$",
-    re.I | re.M
+# Closing salutations that only count when on a SHORT line (real closings are brief)
+_CLOSING_WORDS = re.compile(
+    r"^(?:best|regards|sincerely|warmly|cheers|thanks|thank you|many thanks|"
+    r"kind regards|warm regards|all best|take care|talk soon|"
+    r"have a (?:great|good|nice|wonderful)\s*\w*|"
+    r"[-—]{2,})[\s,!.]*$",
+    re.I
 )
 
 def strip_signature(text: str) -> str:
-    """Remove signature block, phone numbers, emails, and URLs from message body."""
+    """
+    Remove signature from the bottom of a message only.
+    Strategy: scan lines from the bottom up; once we hit a closing salutation
+    (short line matching known patterns) or a line containing an email/phone,
+    cut everything from that line downward.
+    Also strip encoding artifacts, phone numbers, emails, and URLs throughout.
+    """
     if not text:
         return text
-    text = re.sub(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", "", text)
-    text = re.sub(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", "", text)
-    text = re.sub(r"https?://\S+|www\.\S+", "", text)
-    text = _SIG_RE.sub("", text)
-    return text.strip()
+    # Fix common encoding artifacts from Windows-1252 / latin-1 mojibake
+    # Fix Windows-1252 mojibake artifacts
+    for bad, good in [("\u00e2\u0080\u0099","'"),("\u00e2\u0080\u009c",'"'),
+                      ("\u00e2\u0080\u009d",'"'),("\u00e2\u0080\u0094","\u2014"),
+                      ("\u00e2\u0080\u0093","\u2013"),("\u00e2\u0080\u00a6","\u2026"),
+                      ("\u00e2\u0080\u0098","'"),("\u00c3\u00a9","\u00e9"),
+                      ("\u00c3\u00a0","\u00e0")]:
+        text = text.replace(bad, good)
+    # Strip emails, phones, URLs throughout (these are always noise)
+    text = re.sub(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", " ", text)
+    text = re.sub(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", " ", text)
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+    # Now find the signature cutpoint by scanning from the bottom
+    lines = text.split("\n")
+    cut = len(lines)
+    for i in range(len(lines) - 1, max(len(lines) - 15, -1), -1):
+        line = lines[i].strip()
+        # A signature name line: "First L." or "First Last" alone on a line
+        if re.match(r"^[A-Z][a-z]+ [A-Z][a-z\.]+$", line):
+            cut = i
+            continue
+        # Short closing salutation
+        if line and len(line) < 60 and _CLOSING_WORDS.match(line):
+            cut = i
+            continue
+        # Line with only punctuation/whitespace — blank separator
+        if not line or re.match(r"^[\s\W]+$", line):
+            continue
+        # Hit a real content line — stop scanning
+        break
+    text = "\n".join(lines[:cut]).strip()
+    # Clean up leftover whitespace artifacts
+    text = re.sub(r"[ 	]{2,}", " ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+
+
 
 
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
@@ -414,6 +451,14 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
             if any(re.fullmatch(r'\d+', tok) for tok in tokens):
                 return True
             if any(tok in {"com","org","net","edu","co","io","gov","www"} for tok in tokens):
+                return True
+            # block encoding artifacts (mojibake fragments like "iâ", "ve", "â")
+            if any(re.search(r'[â€™œ-]', tok) for tok in tokens):
+                return True
+            if any(tok in {"iâ","ve","â","ã","â€","don","it","ll","re","didn","isn","wasn","couldn","wouldn","haven"} for tok in tokens):
+                return True
+            # block phrases that are just stopword-ish fragments
+            if all(len(tok) <= 3 for tok in tokens):
                 return True
             return False
 
