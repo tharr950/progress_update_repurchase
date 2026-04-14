@@ -760,8 +760,8 @@ def render_analysis(df, label):
     )
 
     name_bl = build_name_blocklist(df)
-    rep_texts   = rep["progress_update_clean"].dropna().astype(str).tolist()
-    norep_texts = norep["progress_update_clean"].dropna().astype(str).tolist()
+    rep_texts   = rep["progress_update"].dropna().astype(str).tolist()
+    norep_texts = norep["progress_update"].dropna().astype(str).tolist()
     grouped_rep, grouped_nor = tfidf_distinctive(rep_texts, norep_texts, name_bl)
 
     def render_grouped_language(grouped, tag_class, pct_col, other_col):
