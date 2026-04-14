@@ -457,6 +457,7 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
 
 
 FEATURE_LABELS = {
+    "hours_remaining":          "Hours remaining at time of update",
     "char_count":               "Total characters written",
     "word_count":               "Total words written",
     "sentence_count":           "Total sentences",
