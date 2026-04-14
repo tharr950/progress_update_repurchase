@@ -917,7 +917,7 @@ def render_analysis(df, label):
         if samples:
             for i, msg in enumerate(samples, 1):
                 with st.expander(f"Example {i} — click to expand"):
-                    st.markdown(msg[:1000] + ("…" if len(msg) > 1000 else ""))
+                    st.markdown(msg)
         else:
             st.info("No repurchased examples found for this signal.")
 
