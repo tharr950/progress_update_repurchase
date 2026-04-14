@@ -513,18 +513,18 @@ def tfidf_distinctive(rep_texts, norep_texts, name_blocklist, n=20):
 
 # ── Actionable message signals ───────────────────────────────────────────────
 ACTIONABLE_SIGNALS = {
-    "mentions_specific_score":      (r"\d{3,4}", "Mentions a specific score (e.g. 1250, 28)"),
-    "mentions_score_gap":           (r"(from|went from|was|started at|increased from|up from|down from|improved from).{0,30}\d{3,4}", "Mentions score improvement (from X to Y)"),
-    "mentions_test_date":           (r"(january|february|march|april|may|june|july|august|september|october|november|december).{0,20}(sat|act|test|exam)|(sat|act|test|exam).{0,20}(january|february|march|april|may|june|july|august|september|october|november|december)", "Mentions a specific upcoming test date"),
-    "asks_to_add_hours":            (r"(add|adding|purchase|purchasing|recommend adding|suggest adding).{0,20}(hours?|more time)", "Explicitly asks parent to add hours"),
-    "proposes_session_frequency":   (r"(\d+\s*(times?|sessions?|hours?)\s*(per|a|each)\s*(week|month)|once|twice|weekly|biweekly)", "Proposes a specific session frequency"),
-    "requests_phone_call":          (r"(phone call|give me a call|schedule a call|hop on a call|quick call|call me|call you|talk on the phone|speak by phone|phone chat)", "Asks for a phone call with the parent"),
-    "mentions_student_by_name":     (r"[A-Z][a-z]{2,}(?=.{0,200}(is|has|was|have|showed|demonstrated|improved|struggled|worked|completed|finished|scored))", "Refers to student by name in context"),
-    "gives_specific_homework":      (r"(assigned|assign|complete|finish|work on|practice).{0,30}(problems?|questions?|sections?|pages?|chapters?|passages?|tests?|sets?)", "Gives specific homework assignment"),
-    "mentions_college_deadline":    (r"(college|application|deadline|common app|early decision|early action|admission)", "Mentions college applications or deadlines"),
-    "mentions_specific_weakness":   (r"(struggle|struggling|weak|weakness|needs work|area of improvement|working on|focus on|target).{0,30}(math|reading|writing|science|english|grammar|punctuation|algebra|geometry|vocabulary|comprehension)", "Identifies a specific subject weakness"),
-    "has_concrete_plan":            (r"(plan is|our plan|the plan|here is what|going to|we will|we are going to|i will|schedule is|next steps are)", "States a concrete plan going forward"),
-    "mentions_practice_test":       (r"(practice test|mock test|full.?length|timed test|diagnostic|practice exam)", "Mentions a practice test"),
+    "mentions_specific_score":    (r"\b\d{3,4}\b",                                                                                           "Mentions a specific score (e.g. 1250, 28)"),
+    "mentions_score_gap":         (r"\b(from|went from|started at|increased from|up from|improved from)\b.{0,40}\b\d{3,4}\b",               "Mentions score improvement (from X to Y)"),
+    "mentions_test_date":         (r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b.{0,20}\b(sat|act|test|exam)\b", "Mentions a specific upcoming test date"),
+    "asks_to_add_hours":          (r"\b(add|adding|purchase|recommend adding|suggest adding)\b.{0,20}\bhours?\b",                            "Explicitly asks parent to add hours"),
+    "proposes_session_frequency": (r"\b(\d+\s*(times?|sessions?|hours?)\s*(per|a|each)\s*(week|month)|once a week|twice a week|weekly|biweekly)\b", "Proposes a specific session frequency"),
+    "requests_phone_call":        (r"\b(phone call|give me a call|schedule a call|hop on a call|quick call|talk on the phone)\b",            "Asks for a phone call with the parent"),
+    "mentions_student_by_name":   (r"\b[A-Z][a-z]{2,}\b.{0,100}\b(improved|struggled|worked|scored|showed|completed|finished|doing)\b",    "Refers to student by name in context"),
+    "gives_specific_homework":    (r"\b(assigned|assign|complete|finish|work on|practice)\b.{0,30}\b(problems?|questions?|sections?|pages?|tests?|sets?)\b", "Gives specific homework assignment"),
+    "mentions_college_deadline":  (r"\b(college|application|deadline|common app|early decision|early action|admission)\b",                   "Mentions college applications or deadlines"),
+    "mentions_specific_weakness": (r"\b(struggling|weak|weakness|needs work|area of improvement|working on|focus on)\b.{0,30}\b(math|reading|writing|science|english|grammar|punctuation|algebra|geometry|vocabulary)\b", "Identifies a specific subject weakness"),
+    "has_concrete_plan":          (r"\b(plan is|our plan|the plan|going to|we will|we are going to|next steps are|here is what)\b",          "States a concrete plan going forward"),
+    "mentions_practice_test":     (r"\b(practice test|mock test|full.?length|timed test|diagnostic|practice exam)\b",                        "Mentions a practice test"),
 }
 
 def score_actionable(text: str) -> dict:
@@ -993,6 +993,7 @@ def render_analysis(df, label):
 # APP
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("# Progress Update Repurchase Analyzer")
+st.caption("App version: 2.0 — if you see this, new code is running")
 st.markdown("*What makes families buy more hours after a progress update?*")
 st.markdown("---")
 
