@@ -100,10 +100,13 @@ h1, h2, h3 { font-family: 'Playfair Display', serif; }
 # ── Data loading ──────────────────────────────────────────────────────────────
 EXCEL_PATH = "ProgressUpdates&Repurchase.xlsx"
 
-@st.cache_data(show_spinner="Loading data…", ttl=0)
+@st.cache_data(show_spinner="Loading data…")
 def load_data():
     df6  = pd.read_excel(EXCEL_PATH, sheet_name="0 to 6 hours remaining")
     df10 = pd.read_excel(EXCEL_PATH, sheet_name="0 to 10 hours remaining")
+    # Run all enrichment inside the cache so columns are always present
+    df6  = enrich_actionable(enrich_tones(enrich(df6)))
+    df10 = enrich_actionable(enrich_tones(enrich(df10)))
     return df6, df10
 
 # ── Text feature extraction ───────────────────────────────────────────────────
@@ -996,13 +999,14 @@ st.markdown("*What makes families buy more hours after a progress update?*")
 st.markdown("---")
 
 try:
-    raw6, raw10 = load_data()
+    df6, df10 = load_data()
+    raw6, raw10 = df6, df10
 except FileNotFoundError:
     st.error("❌ Could not find `ProgressUpdates_Repurchase.xlsx`. Place it in the same folder as this script.")
     st.stop()
 
-df6  = enrich_actionable(enrich_tones(enrich(raw6)))
-df10 = enrich_actionable(enrich_tones(enrich(raw10)))
+# enrichment is now done inside load_data()
+df6, df10 = raw6, raw10
 
 # ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
