@@ -100,15 +100,6 @@ h1, h2, h3 { font-family: 'Playfair Display', serif; }
 # ── Data loading ──────────────────────────────────────────────────────────────
 EXCEL_PATH = "ProgressUpdates&Repurchase.xlsx"
 
-@st.cache_data(show_spinner="Loading data…")
-def load_data():
-    df6  = pd.read_excel(EXCEL_PATH, sheet_name="0 to 6 hours remaining")
-    df10 = pd.read_excel(EXCEL_PATH, sheet_name="0 to 10 hours remaining")
-    # Run all enrichment inside the cache so columns are always present
-    df6  = enrich_actionable(enrich_tones(enrich(df6)))
-    df10 = enrich_actionable(enrich_tones(enrich(df10)))
-    return df6, df10
-
 # ── Text feature extraction ───────────────────────────────────────────────────
 STOP_WORDS = {
     "the","a","an","and","or","but","in","on","at","to","for","of","with",
@@ -547,6 +538,16 @@ def enrich_actionable(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = sig_df[col].values
     return df
 
+@st.cache_data(show_spinner="Loading data…", hash_funcs={}, ttl=None)
+def load_data(_cache_bust="v3"):
+    df6  = pd.read_excel(EXCEL_PATH, sheet_name="0 to 6 hours remaining")
+    df10 = pd.read_excel(EXCEL_PATH, sheet_name="0 to 10 hours remaining")
+    # Run all enrichment inside the cache so columns are always present
+    df6  = enrich_actionable(enrich_tones(enrich(df6)))
+    df10 = enrich_actionable(enrich_tones(enrich(df10)))
+    return df6, df10
+
+
 def actionable_table(rep, norep):
     rows = []
     for key, (_, label) in ACTIONABLE_SIGNALS.items():
@@ -863,14 +864,6 @@ def render_analysis(df, label):
         "specific choices a tutor makes when writing. Sorted by Δ (percentage point difference "
         "between repurchased and not). These are the most directly actionable findings."
     )
-
-    # DEBUG — remove once working
-    act_cols = [c for c in rep.columns if c in ACTIONABLE_SIGNALS]
-    st.write(f"DEBUG: actionable cols found on rep: {act_cols}")
-    if act_cols:
-        st.write(f"DEBUG: mentions_specific_score mean (rep): {rep['mentions_specific_score'].mean():.3f}")
-    else:
-        st.write(f"DEBUG: ALL rep columns: {list(rep.columns)}")
 
     act_tbl = actionable_table(rep, norep)
     st.dataframe(
