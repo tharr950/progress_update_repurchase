@@ -100,7 +100,7 @@ h1, h2, h3 { font-family: 'Playfair Display', serif; }
 # ── Data loading ──────────────────────────────────────────────────────────────
 EXCEL_PATH = "ProgressUpdates&Repurchase.xlsx"
 
-@st.cache_data(show_spinner="Loading data…")
+@st.cache_data(show_spinner="Loading data…", ttl=0)
 def load_data():
     df6  = pd.read_excel(EXCEL_PATH, sheet_name="0 to 6 hours remaining")
     df10 = pd.read_excel(EXCEL_PATH, sheet_name="0 to 10 hours remaining")
@@ -188,7 +188,9 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     df["hours_remaining"] = (df["purchased_hours"] - df["delivered_hours"]).clip(lower=0)
     # stripped version used for language analysis only
     df["progress_update_clean"] = df["progress_update"].astype(str).apply(strip_signature)
-    feat_df = df["progress_update_clean"].apply(extract_features).apply(pd.Series)
+    # Use raw text for feature extraction (word count, tone signals, etc.)
+    # Clean text is only used for TF-IDF / keyword analysis to strip signatures
+    feat_df = df["progress_update"].astype(str).apply(extract_features).apply(pd.Series)
     return pd.concat([df.reset_index(drop=True), feat_df], axis=1)
 
 
