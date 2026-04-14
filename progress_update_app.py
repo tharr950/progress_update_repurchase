@@ -535,11 +535,14 @@ ACTIONABLE_SIGNALS = {
 
 def score_actionable(text: str) -> dict:
     text = str(text)
-    return {k: int(bool(re.search(pat, text, re.I))) for k, (pat, _) in ACTIONABLE_SIGNALS.items()}
+    return {k: int(bool(re.search(pat, text, re.I | re.DOTALL))) for k, (pat, _) in ACTIONABLE_SIGNALS.items()}
 
 def enrich_actionable(df: pd.DataFrame) -> pd.DataFrame:
     sig_df = df["progress_update"].astype(str).apply(score_actionable).apply(pd.Series)
-    return pd.concat([df, sig_df], axis=1)
+    df = df.copy()
+    for col in sig_df.columns:
+        df[col] = sig_df[col].values
+    return df
 
 def actionable_table(rep, norep):
     rows = []
