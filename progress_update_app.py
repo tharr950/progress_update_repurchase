@@ -538,13 +538,9 @@ def enrich_actionable(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = sig_df[col].values
     return df
 
-@st.cache_data(show_spinner="Loading data…", hash_funcs={}, ttl=None)
-def load_data(_cache_bust="v3"):
+def load_data():
     df6  = pd.read_excel(EXCEL_PATH, sheet_name="0 to 6 hours remaining")
     df10 = pd.read_excel(EXCEL_PATH, sheet_name="0 to 10 hours remaining")
-    # Run all enrichment inside the cache so columns are always present
-    df6  = enrich_actionable(enrich_tones(enrich(df6)))
-    df10 = enrich_actionable(enrich_tones(enrich(df10)))
     return df6, df10
 
 
@@ -1001,14 +997,14 @@ st.markdown("*What makes families buy more hours after a progress update?*")
 st.markdown("---")
 
 try:
-    df6, df10 = load_data()
-    raw6, raw10 = df6, df10
+    raw6, raw10 = load_data()
 except FileNotFoundError:
     st.error("❌ Could not find `ProgressUpdates_Repurchase.xlsx`. Place it in the same folder as this script.")
     st.stop()
 
 # enrichment is now done inside load_data()
-df6, df10 = raw6, raw10
+df6  = enrich_actionable(enrich_tones(enrich(raw6)))
+df10 = enrich_actionable(enrich_tones(enrich(raw10)))
 
 # ── Sidebar filters ───────────────────────────────────────────────────────────
 with st.sidebar:
